@@ -53,7 +53,7 @@ interface Field {
 }
 interface DiscordRichEmbed {
   title?: string;
-  type?: 'rich'; // Always rich for webhooks
+  type?: 'rich';
   description?: string;
   url?: string;
   timestamp?: string;
@@ -108,11 +108,12 @@ class DiscordAgent
   public buildEmbed(
     type: Notification,
     payload: NotificationPayload
-  ): DiscordRichEmbed {
+  ): { embed: DiscordRichEmbed; statusText?: string } {
     const { applicationUrl } = getSettings().main;
 
     let color = EmbedColors.DARK_PURPLE;
     const fields: Field[] = [];
+    let statusText: string | undefined;
 
     if (payload.request) {
       fields.push({
@@ -121,35 +122,34 @@ class DiscordAgent
         inline: true,
       });
 
-      let status = '';
       switch (type) {
         case Notification.MEDIA_PENDING:
           color = EmbedColors.ORANGE;
-          status = 'Pending Approval';
+          statusText = 'Pending Approval';
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:
           color = EmbedColors.PURPLE;
-          status = 'Processing';
+          statusText = 'Processing';
           break;
         case Notification.MEDIA_AVAILABLE:
           color = EmbedColors.GREEN;
-          status = 'Available';
+          statusText = 'Available';
           break;
         case Notification.MEDIA_DECLINED:
           color = EmbedColors.RED;
-          status = 'Declined';
+          statusText = 'Declined';
           break;
         case Notification.MEDIA_FAILED:
           color = EmbedColors.RED;
-          status = 'Failed';
+          statusText = 'Failed';
           break;
       }
 
-      if (status) {
+      if (statusText) {
         fields.push({
           name: 'Request Status',
-          value: status,
+          value: statusText,
           inline: true,
         });
       }
@@ -209,7 +209,7 @@ class DiscordAgent
         : undefined
       : undefined;
 
-    return {
+    const embed: DiscordRichEmbed = {
       title: payload.subject,
       url,
       description: payload.message,
@@ -225,16 +225,14 @@ class DiscordAgent
         url: payload.image,
       },
     };
+
+    return { embed, statusText };
   }
 
   public shouldSend(): boolean {
     const settings = this.getSettings();
 
-    if (settings.enabled && settings.options.webhookUrl) {
-      return true;
-    }
-
-    return false;
+    return !!(settings.enabled && settings.options.webhookUrl);
   }
 
   public async send(
@@ -292,13 +290,17 @@ class DiscordAgent
         }
       }
 
+      const { embed, statusText } = this.buildEmbed(type, payload);
+
       await axios.post(settings.options.webhookUrl, {
         username: settings.options.botUsername
           ? settings.options.botUsername
           : getSettings().main.applicationTitle,
         avatar_url: settings.options.botAvatarUrl,
-        embeds: [this.buildEmbed(type, payload)],
-        content: userMentions.join(' '),
+        embeds: [embed],
+        content: statusText
+          ? `**Request Status: ${statusText}**\n${userMentions.join(' ')}`
+          : userMentions.join(' '),
       } as DiscordWebhookPayload);
 
       return true;
