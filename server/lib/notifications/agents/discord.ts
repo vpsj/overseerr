@@ -105,6 +105,38 @@ class DiscordAgent
     return settings.notifications.agents.discord;
   }
 
+  private getStatusLabel(
+    type: Notification,
+    payload: NotificationPayload
+  ): string {
+    if (payload.request) {
+      switch (type) {
+        case Notification.MEDIA_PENDING:
+          return 'Pending Approval';
+        case Notification.MEDIA_APPROVED:
+        case Notification.MEDIA_AUTO_APPROVED:
+          return 'Processing';
+        case Notification.MEDIA_AVAILABLE:
+          return 'Available';
+        case Notification.MEDIA_DECLINED:
+          return 'Declined';
+        case Notification.MEDIA_FAILED:
+          return 'Failed';
+      }
+    } else if (payload.issue) {
+      switch (type) {
+        case Notification.ISSUE_CREATED:
+        case Notification.ISSUE_REOPENED:
+          return 'Issue Reported';
+        case Notification.ISSUE_COMMENT:
+          return 'Issue Comment';
+        case Notification.ISSUE_RESOLVED:
+          return 'Issue Resolved';
+      }
+    }
+    return '';
+  }
+
   public buildEmbed(
     type: Notification,
     payload: NotificationPayload
@@ -121,38 +153,28 @@ class DiscordAgent
         inline: true,
       });
 
-      let status = '';
       switch (type) {
         case Notification.MEDIA_PENDING:
           color = EmbedColors.ORANGE;
-          status = 'Pending Approval';
           break;
         case Notification.MEDIA_APPROVED:
         case Notification.MEDIA_AUTO_APPROVED:
           color = EmbedColors.PURPLE;
-          status = 'Processing';
           break;
         case Notification.MEDIA_AVAILABLE:
           color = EmbedColors.GREEN;
-          status = 'Available';
           break;
         case Notification.MEDIA_DECLINED:
-          color = EmbedColors.RED;
-          status = 'Declined';
-          break;
         case Notification.MEDIA_FAILED:
           color = EmbedColors.RED;
-          status = 'Failed';
           break;
       }
 
-      if (status) {
-        fields.push({
-          name: 'Request Status',
-          value: status,
-          inline: true,
-        });
-      }
+      fields.push({
+        name: 'Request Status',
+        value: this.getStatusLabel(type, payload),
+        inline: true,
+      });
     } else if (payload.comment) {
       fields.push({
         name: `Comment from ${payload.comment.user.displayName}`,
@@ -292,13 +314,19 @@ class DiscordAgent
         }
       }
 
+      const embed = this.buildEmbed(type, payload);
+      const statusLabel = this.getStatusLabel(type, payload);
+
       await axios.post(settings.options.webhookUrl, {
         username: settings.options.botUsername
           ? settings.options.botUsername
           : getSettings().main.applicationTitle,
         avatar_url: settings.options.botAvatarUrl,
-        embeds: [this.buildEmbed(type, payload)],
-        content: userMentions.join(' '),
+        embeds: [embed],
+        // 👇 Top-level content that Android push notifications show
+        content: `**Status: ${statusLabel || 'Unknown'}**\n${userMentions.join(
+          ' '
+        )}`,
       } as DiscordWebhookPayload);
 
       return true;
